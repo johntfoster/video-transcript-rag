@@ -1,55 +1,76 @@
 import os
-from dotenv import load_dotenv
-
-OPENAI_API_KEY = [ENTER YOUR OPENAI API KEY HERE]
-PINECONE_API_KEY = [ENTER YOUR PINECONE API KEY HERE]
-PINECONE_API_ENV = [ENTER YOUR PINECONE API ENVIRONMENT HERE]
-
-load_dotenv()
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-#Loading the model
-from langchain_openai.chat_models import ChatOpenAI
-
-model = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model="gpt-3.5-turbo")
-
-#Set up the string parser
-from langchain_core.output_parsers import StrOutputParser
-
-parser = StrOutputParser()
-
-chain = model | parser
-
-#Create a template
-from langchain.prompts import ChatPromptTemplate
-
-template = """
-Answer the question based on the context below. If you can't 
-answer the question, reply "I don't know".
-
-Context: {context}
-
-Question: {question}
-"""
-
-#Load the text into the model
-from langchain_community.document_loaders import TextLoader
-
-loader = TextLoader("transcription.txt")
-text_documents = loader.load()
-
-#Split the text into chunks
+from langchain.text_splitter import CharacterTextSplitter
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=20)
-documents = text_splitter.split_documents(text_documents)
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationalRetrievalChain
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.prompts import HumanMessagePromptTemplate
+from langchain_core.messages import SystemMessage
 
-#Embeddings 
-from langchain_openai.embeddings import OpenAIEmbeddings
+#Load the API key
+os.environ['OPENAI_API_KEY'] = "INSERT OPENAPI KEY HERE"
 
-embeddings = OpenAIEmbeddings()
+#Recursively splits text into chunks
+def get_text_chunks(raw_text):
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=0, separators=[" ", ",", "\n"])
+    chunks = text_splitter.split_text(raw_text)
+    return chunks
 
-#Computing Similarity 
-from sklearn.metrics.pairwise import cosine_similarity
+#Generates a vectorstore
+def get_vectorstore(chunks):
+    embeddings = OpenAIEmbeddings()
+    vectorstore = FAISS.from_texts(texts=chunks, embedding=embeddings)
+    return vectorstore
 
-#Pinecone Confusion
+#Generates the model template
+def get_conversation_chain(vectorstore):
+    template = ChatPromptTemplate.from_messages(
+      [
+        SystemMessage(
+            content=(
+                "You are an autoregressive language model that has been fine-"
+                "tuned with instruction-tuning and RLHF. You carefully "
+                "provide accurate, factual, thoughtful, nuanced answers, and"
+                "are brilliant at reasoning. If you think there might not be "
+                "a correct answer, you say so. Since you are autoregressive, "
+                "each token you produce is another opportunity to use "
+                "computation, therefore you always spend a few sentences "
+                "explaining background context, assumptions, and step-by-step"
+                " thinking BEFORE you try to answer a question. Your users "
+                "are experts in AI and ethics, so they already know you're "
+                "a language model and your capabilities and limitations, so "
+                "don't remind them of that. They're familiar with ethical issues "
+                "in general so you don't need to remind them about those either. "
+                "Don't be verbose in your answers, but do provide details and "
+                "examples where it might help the explanation."
+            )
+        ),
+        HumanMessagePromptTemplate.from_template("{text}"),
+      ]
+    )
+    llm = ChatOpenAI()#model_name="gpt-4")
+    memory = ConversationBufferMemory(memory_key='chat_history', return_messages=True)
+    conversation_chain = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        condense_question_prompt=template,
+        retriever=vectorstore.as_retriever(),
+        memory=memory
+    )
+    return conversation_chain
+
+#Putting it all together
+def create_chat_from_text(directory):
+    with open('combined.txt', 'r') as file:
+        text_documents = file.read()
+    chunks = get_text_chunks(text_documents)
+    vs = get_vectorstore(chunks)
+    chain = get_conversation_chain(vs)
+    return chain
+
+#Testing
+chat_chain = create_chat_from_text(".")
+result = chat_chain.run("What is multipoint simulation? Answer in four sentences.")
+print(result)
