@@ -1,11 +1,11 @@
 import os
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.prompts import HumanMessagePromptTemplate
 from langchain_core.messages import SystemMessage
@@ -72,5 +72,5 @@ def create_chat_from_text(directory):
 
 #Testing
 chat_chain = create_chat_from_text(".")
-result = chat_chain.run("What is multipoint simulation? Answer in four sentences.")
+result = chat_chain.run("What is multipoint simulation? Explain in five sentences.")
 print(result)
